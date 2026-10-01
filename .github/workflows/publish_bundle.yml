@@ -1,0 +1,36 @@
+name: Publish bundled source
+
+on:
+  push:
+    paths:
+      - '.publish/fpv2_bundle.b64'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Extract source bundle
+        shell: bash
+        run: |
+          if [ ! -f .publish/fpv2_bundle.b64 ]; then
+            echo "Bundle already consumed."
+            exit 0
+          fi
+          base64 -d .publish/fpv2_bundle.b64 > /tmp/fpv2_bundle.tar.gz
+          tar -xzf /tmp/fpv2_bundle.tar.gz -C .
+          rm -f .publish/fpv2_bundle.b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Publish complete FPV Tracker V2 source and assets"
+          git push
