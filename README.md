@@ -1,284 +1,325 @@
-![FPV Autonomous Tracking demo](docs/images/tracking-demo.png)
+![FPV Autonomous Tracking demo](docs/images/main-tracking.png)
 
 # FPV Autonomous Vehicle Tracking & Virtual Autopilot Vision Studio
 
-Advanced local computer-vision application for detecting, tracking and following road vehicles in aerial / FPV video. The project combines multi-object detection, persistent IDs, click-to-lock target selection, ByteTrack-style association, Kalman prediction, automatic target reacquisition, motion/size analysis, trajectory visualization and a virtual autopilot guidance layer in one Windows desktop interface.
+Advanced local computer-vision application for aerial / FPV vehicle detection, persistent multi-object tracking, target locking, Kalman prediction, target reacquisition, trajectory analysis and virtual autopilot guidance.
 
-> **Simulation only:** this software does not command a real aircraft, Pixhawk, PX4, MAVLink or MAVSDK. Flight-direction and speed outputs are visualization and control-logic simulations only.
+The software is designed as an engineering and research desktop tool. It can process drone video files, webcams and RTSP streams, maintain stable vehicle IDs, lock a selected vehicle as the target, estimate image-space motion and size trends, predict short occlusions, and visualize how a **virtual** flight director would correct the camera/drone position.
+
+> **Safety note:** this version is a visual tracking and control-logic simulation. It does **not** send commands to motors, PX4, Pixhawk, MAVLink or MAVSDK. `LEFT`, `RIGHT`, `FORWARD`, `BACK`, `SPEED UP`, `SLOW DOWN`, PID percentages and related outputs are visualization/telemetry only.
 
 ## Application interface
 
-![FPV Tracker V2 interface](docs/images/interface.png)
+![Application interface and loaded FPV source](docs/images/interface.png)
 
-The interface provides direct access to the source, detector, model profile, tracker, compute device, processing mode, target-selection mode, target telemetry, virtual-autopilot controls, PID parameters, trajectory display, virtual camera follow, recording and export tools.
+The interface combines source control, detector/model selection, tracker configuration, target state, prediction, virtual autopilot controls, playback, recording and telemetry in one window.
 
-## Project overview
+## Highlights
 
-This second-generation tracker was designed as a more capable engineering platform than the first FPV tracker. It is built around a modular pipeline so detector, tracking, prediction, target management, guidance logic, visualization and recording are separated into independent components.
-
-The application can process recorded drone footage, webcams and RTSP streams. Multiple vehicles are detected and tracked simultaneously, while one vehicle can be selected as the active target. The target can remain locked through short occlusions using motion prediction and can be reacquired when it reappears near the predicted position.
-
-## Main features
-
-- Aerial / FPV vehicle detection
-- Multi-object tracking with persistent IDs
-- CAR, TRUCK, BUS and MOTORCYCLE classes
-- Click-to-select target
-- AUTO CENTER target mode
-- LARGEST VEHICLE target mode
-- ByteTrack-style two-stage association
-- Kalman-filter target prediction during temporary occlusion
-- Automatic target reacquisition
-- Target trajectory history and predicted trajectory
-- Target motion estimation
-- Target-size trend analysis
-- Relative-distance trend estimation from apparent target size
-- Virtual camera follow window
-- Automatic follow-view zoom
-- Configurable dead zone
-- Virtual lateral / forward guidance output
-- SIMPLE proportional controller
-- Separate horizontal / vertical PID controller
-- Configurable Kp / Ki / Kd values
-- Virtual speed commands: SPEED UP / SLOW DOWN / HOLD SPEED
-- Video-file, webcam and RTSP input
-- REALTIME and EVERY FRAME processing modes
-- Single-frame stepping when paused
-- Video playback speed control
-- Processed video recording
-- Screenshot and clean-frame export
+- Vehicle detection for `CAR`, `TRUCK`, `BUS` and `MOTORCYCLE`
+- Ultralytics YOLO detector profiles with RT-DETR option
+- FAST / BALANCED / ACCURATE model profiles
+- CPU / CUDA / automatic device selection
+- Multi-object tracking with persistent track IDs
+- ByteTrack-style two-stage association implemented in the application
+- Click-to-lock target selection
+- Automatic center-priority target selection
+- Largest-vehicle target mode
+- Target loss timeout and automatic reacquisition
+- Kalman-based target prediction during temporary occlusion
+- Measured and predicted trajectory visualization
+- Image-space target velocity and motion state analysis
+- Target-size trend and relative-distance trend estimation
+- Virtual speed commands: `SPEED UP`, `SLOW DOWN`, `HOLD SPEED`
+- Configurable center dead zone
+- Target vector and normalized X/Y error
+- SIMPLE proportional controller simulation
+- Independent horizontal/vertical PID controller simulation
+- Virtual camera follow view with automatic zoom
+- Real-time and every-frame video processing modes
+- Frame-by-frame stepping while paused
+- 0.25× to 2× playback speed
+- Webcam, local video and RTSP input
+- Annotated screenshot and clean-frame export
+- Processed MP4 recording with synchronized CSV telemetry
 - Session telemetry CSV export
-- CPU / CUDA / AUTO execution
-- Runtime FPS and processing-status display
-- Custom Ultralytics model discovery
+- Runtime performance and GPU information
+- Custom `.pt` model discovery
+
+## Tracking pipeline
+
+```text
+Video / Webcam / RTSP
+        │
+        ▼
+Vehicle detector
+YOLO / RT-DETR
+        │
+        ▼
+Multi-object association
+persistent IDs
+        │
+        ▼
+Target manager
+click / auto-center / largest
+        │
+        ├───────────────┐
+        ▼               ▼
+Motion & size       Kalman prediction
+analysis            + reacquisition
+        │               │
+        └───────┬───────┘
+                ▼
+         Virtual autopilot
+       SIMPLE / PID guidance
+                │
+                ▼
+ Visualization + recording
+        + CSV telemetry
+```
 
 ## Detection backends
 
-The detector layer supports Ultralytics models through two selectable families:
+The detector layer supports Ultralytics models through a common application backend.
 
 ### YOLO
 
-Profiles map to progressively larger checkpoints:
+The built-in profiles prefer the latest configured Ultralytics YOLO checkpoints and fall back to compatible YOLO11 / YOLOv8 checkpoints when required.
 
-| Profile | Preferred model | Input size | Use case |
-| --- | --- | ---: | --- |
-| FAST | YOLO nano | 640 | maximum speed |
-| BALANCED | YOLO small | 960 | general aerial tracking |
-| ACCURATE | YOLO medium | 1280 | small / distant vehicles |
-
-The application prefers current YOLO checkpoints and retains fallback support for earlier Ultralytics generations when the preferred checkpoint is unavailable.
+| Profile | Intended use | Typical input size |
+| --- | --- | ---: |
+| FAST | highest throughput | 640 |
+| BALANCED | aerial vehicle tracking | 960 |
+| ACCURATE | small/distant target quality | 1280 |
 
 ### RT-DETR
 
-RT-DETR is available as an alternative detector for higher-quality experiments where more compute is acceptable.
+RT-DETR can be selected as an alternative detector for comparison and higher-quality inference scenarios.
 
-Model weights are downloaded separately and are intentionally not committed to this repository.
+Model weights are downloaded locally when needed and are intentionally **not committed** to this repository.
 
-## Tracking architecture
+## Multi-object tracking
 
-The tracker maintains a separate state for each detected object and uses a ByteTrack-style strategy:
+The tracking layer keeps multiple vehicles alive simultaneously and assigns stable IDs such as `CAR #1` or `TRUCK #4`.
+
+The association strategy follows the main idea of ByteTrack-style matching:
 
 1. high-confidence detections are associated first;
-2. lower-confidence detections can recover existing tracks;
-3. motion prediction helps preserve IDs through short misses;
-4. track age and lost duration are maintained independently;
-5. one track can be promoted to the active target without stopping the other tracks.
+2. lower-confidence detections can recover an existing track;
+3. short detection gaps do not immediately destroy track identity;
+4. target selection is kept separate from background multi-object tracking.
 
-Persistent labels such as `CAR #1` allow the same object to be followed across consecutive frames.
+This implementation is part of this application's tracking layer and does not require a separate MMTracking runtime.
 
-## Target selection and states
+## Target selection
 
-Available target-selection modes include:
+Three target modes are provided:
 
-- **CLICK TARGET** — click a vehicle directly in the video;
-- **AUTO CENTER** — choose the vehicle closest to frame center;
-- **LARGEST VEHICLE** — choose the visually largest candidate.
+- **CLICK TARGET** — click a vehicle in the video or select it from the tracking table;
+- **AUTO CENTER** — automatically choose a suitable vehicle near the image center;
+- **LARGEST VEHICLE** — select the largest visible candidate.
 
 Target states include:
 
 `SEARCHING` · `DETECTED` · `LOCKED` · `CENTERED` · `CORRECTING` · `OCCLUDED` · `PREDICTING` · `REACQUIRED` · `LOST`
 
-The right-side target panel reports class, track ID, confidence, tracking mode, track age, lost duration, target motion, speed, target size, size trend and relative-distance trend.
+## Kalman prediction and reacquisition
 
-## Occlusion prediction and reacquisition
+A locked vehicle is not immediately discarded when a detector misses it.
 
-When the target temporarily disappears, the application does not immediately discard it. A Kalman predictor estimates its next position and a predicted target box can be rendered while the target is occluded.
+During a short occlusion:
 
-If a compatible detection appears close enough to the predicted position before the configurable timeout expires, the target is reacquired and tracking continues with the existing target identity.
+- the state changes to `OCCLUDED / PREDICTING`;
+- the Kalman predictor estimates the next target position;
+- a predicted box/trajectory can be rendered;
+- new detections are compared with the predicted position;
+- a suitable match restores the previous target identity as `REACQUIRED`.
 
-This behavior is useful in aerial footage where vehicles can briefly pass behind trees, buildings, shadows or other traffic.
+The lost-target timeout is configurable.
 
-## Motion and target-size analysis
+## Motion and relative-distance analysis
 
-The analysis layer derives additional state from image-space movement:
+Target motion is calculated from image-space position history and can be labeled as moving left/right/forward/back or stable.
 
-- movement direction from target-center velocity;
-- target speed in image coordinates;
-- target area relative to the frame;
-- `GROWING`, `SHRINKING` or `STABLE` size trend;
-- `APPROACHING`, `RECEDING` or `STABLE` relative-distance trend.
+The target box area is also monitored:
 
-Relative distance is a visual trend only. It is not a metric distance measurement because the application does not use a depth sensor.
+- `GROWING`
+- `SHRINKING`
+- `STABLE`
 
-## Virtual autopilot
+From this trend the interface derives an approximate relative-distance state such as `APPROACHING` or `RECEDING`.
 
-The guidance system converts the selected target's offset from frame center into simulated control output.
+This is **not metric depth**. No physical distance in meters is inferred from a single camera in this module.
 
-Typical commands include:
+## Virtual autopilot / flight director
 
-- `LEFT`
-- `RIGHT`
-- `FORWARD`
-- `BACK`
-- `HOLD`
-- combined diagonal commands such as `FORWARD + LEFT`
+The target offset from the frame center is converted into simulated visual guidance:
 
-The dead zone can be adjusted so small target movement around the center does not produce continuous correction commands.
+- target left → `LEFT`
+- target right → `RIGHT`
+- target above → `FORWARD`
+- target below → `BACK`
+- target inside the dead zone → `HOLD`
 
-The panel also displays normalized lateral/forward percentages and X/Y tracking error.
+Diagonal corrections can be combined, for example `FORWARD + LEFT`.
 
-### SIMPLE controller
+The interface also shows normalized error, lateral/forward percentages, target vector and virtual speed guidance.
 
-A proportional mapping converts target displacement directly to virtual guidance output.
+### Controllers
 
-### PID controller
+**SIMPLE** uses proportional image-space correction.
 
-Independent horizontal and vertical PID controllers provide adjustable:
+**PID** provides independent horizontal and vertical controllers with editable `Kp`, `Ki` and `Kd` coefficients for simulation and tuning experiments.
 
-- `Kp`
-- `Ki`
-- `Kd`
-
-PID output is visualized only and is not connected to physical flight hardware.
-
-## Virtual speed command
-
-Target-size history is used to produce an additional simulated speed command:
-
-- apparent target shrinking → `SPEED UP`
-- apparent target growing quickly → `SLOW DOWN`
-- otherwise → `HOLD SPEED`
-
-This is intended for control-logic visualization and experimentation rather than direct vehicle control.
+These values are not calibrated aircraft-control commands.
 
 ## Virtual camera follow
 
-**VIRTUAL CAMERA FOLLOW** opens a separate cropped follow view around the selected target. **Auto Zoom** adjusts the crop to keep the tracked object at a more consistent visual size.
+The optional follow view creates a separate crop around the currently locked target. Auto Zoom can keep the target at a more consistent apparent size without modifying the original source video.
 
-The follow view does not alter the original input frame.
+## Video playback and analysis
 
-## Sources and playback
+Supported local video formats depend on the installed OpenCV codecs and commonly include MP4, AVI, MOV, MKV, M4V and WMV.
 
-Supported source types:
+Useful analysis controls include:
 
-- video files;
-- webcam;
-- RTSP stream.
-
-Video-file mode provides:
-
+- play / pause / stop;
 - timeline seeking;
-- pause / resume;
-- single-frame stepping;
-- playback-speed selection;
-- source metadata such as resolution, FPS, frame count, duration and codec.
+- previous/next frame stepping while paused;
+- 0.25×, 0.5×, 1×, 1.5× and 2× playback;
+- **REALTIME** mode, which may drop frames to remain close to source time;
+- **EVERY FRAME** mode for complete frame-by-frame analysis.
 
-### Processing modes
+## Recording and telemetry
 
-**REALTIME** prioritizes keeping playback close to the source timing and may drop frames when inference cannot keep up.
+The application can record an annotated demonstration while simultaneously writing telemetry.
 
-**EVERY FRAME** processes every frame and is intended for detailed tracking review, even when playback becomes slower than real time.
+Typical outputs:
 
-## Recording and export
+```text
+recordings/
+├── drone_tracking_YYYYMMDD_HHMMSS.mp4
+└── drone_tracking_YYYYMMDD_HHMMSS.csv
+```
 
-The recording pipeline can save an annotated MP4 together with a telemetry CSV containing synchronized tracking and guidance information.
+The visual recording can include:
 
-Additional output tools include:
+- bounding boxes and track IDs;
+- locked target state;
+- trajectories and predicted trajectory;
+- dead zone and center crosshair;
+- target vector;
+- flight-director visualization;
+- virtual guidance command;
+- target-size / relative-distance trend;
+- performance information.
 
-- **SAVE SCREENSHOT** — annotated frame;
-- **SAVE CLEAN FRAME** — original frame without overlays;
-- **EXPORT CSV** — session telemetry export.
+`EXPORT CSV` can also save telemetry for the current analysis session to `exports/`.
 
-Generated recordings, screenshots and exports are excluded from version control by default.
+## Sources
 
-## GPU and CPU support
+### Local video
 
-Available execution modes:
+Use **BROWSE...** to select a video file. Metadata such as resolution, FPS, frame count, duration and codec is shown in the interface.
 
-- **AUTO** — use CUDA when a working NVIDIA device is available;
-- **CUDA** — request GPU execution;
-- **CPU** — force CPU inference.
+### Webcam
 
-The GPU-selection helper can choose between multiple installed NVIDIA GPUs based on available runtime information.
+A local camera can be used for live testing.
+
+### RTSP
+
+RTSP input is available for network-camera / FPV-stream experiments.
 
 ## Custom models
 
-Custom `.pt` detector weights can be placed in `custom_models/` or `models/`. The model registry discovers additional checkpoints while keeping standard profiles separate.
-
-Model files are excluded from this repository because they are large third-party assets and can have their own licensing terms.
-
-## Project structure
+Custom Ultralytics-compatible `.pt` weights can be placed in:
 
 ```text
-app/             PySide6 GUI, source/target/controller panels and video widgets
-analysis/        motion, velocity and target-size analysis
-control/         proportional and PID virtual-autopilot logic
-detection/       detector backend, worker, manager and model registry
-export/          CSV export
-prediction/      Kalman prediction, trajectory and reacquisition
-recording/       video and telemetry recording
-sources/         video, webcam and RTSP sources
-tracking/        track manager, target manager and ByteTrack-style association
-utils/           GPU info, settings, logging, datatypes and timing
-visualization/   boxes, trajectories, target vector and flight-director overlays
-custom_models/   optional user-provided model weights
-models/          downloaded detector checkpoints
+custom_models/
 ```
+
+or the local `models/` folder. Large checkpoint files are excluded from Git.
 
 ## Installation
 
-Recommended environment:
+### Requirements
 
-- Windows 10 / 11
+- Windows 10/11
 - Python 3.10+
-- NVIDIA GPU optional
+- NVIDIA GPU optional but recommended for higher-resolution aerial detection
 
 Run:
 
-```text
+```bat
 install.bat
 ```
 
-Then launch:
+The installer:
 
-```text
+1. creates `.venv`;
+2. installs PyTorch;
+3. attempts a CUDA-enabled PyTorch build when an NVIDIA GPU is available;
+4. installs the application dependencies;
+5. runs the detector/tracker/video self-check.
+
+Start the application with:
+
+```bat
 start.bat
 ```
 
-Main Python dependencies:
+or manually:
 
-- NumPy
-- OpenCV
+```bat
+.venv\Scripts\activate.bat
+python main.py
+```
+
+## Core dependencies
+
+- Python
 - PySide6
+- OpenCV
+- NumPy
+- PyTorch
 - Ultralytics
 
-## Privacy and local processing
+See `requirements.txt` for the direct Python requirements.
 
-After packages and model weights are installed, normal video, camera and RTSP processing runs locally on the machine. The application does not require cloud inference for its tracking pipeline.
+## Repository structure
 
-## License and third-party software
+```text
+analysis/        motion, velocity and target-size analysis
+app/             PySide6 interface and pipeline worker
+config/          persistent application settings
+control/         proportional / PID virtual autopilot logic
+custom_models/   optional custom detector weights
+detection/       YOLO / RT-DETR detector abstraction
+export/          CSV session export
+prediction/      Kalman prediction, trajectory and reacquisition
+recording/       video and telemetry recording
+sources/         video, webcam and RTSP sources
+tracking/        multi-object and target tracking
+utils/           paths, settings, logging and GPU helpers
+visualization/   boxes, trajectory, vector and flight-director overlays
+tests/           acceptance checks
+tools/           self-check utilities
+```
 
-This repository is distributed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. See `LICENSE`.
+## Privacy and local operation
 
-The project uses third-party software that remains subject to its own licensing terms, including:
+After dependencies and model weights are installed, normal video inference can run locally on the computer. The application does not require uploading camera/video frames to a cloud API.
 
-- **Ultralytics** — AGPL-3.0 for the open-source distribution, with separate commercial licensing available from Ultralytics;
-- **OpenCV** — Apache License 2.0;
-- **NumPy** — BSD-3-Clause;
-- **PySide6 / Qt for Python** — LGPLv3 / GPLv3 / commercial licensing options.
+## License
 
-See `THIRD_PARTY_LICENSES.md` for additional notes.
+This repository is published under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-## Safety note
+The application uses the Ultralytics Python package for YOLO / RT-DETR inference. The public Ultralytics repository is distributed under AGPL-3.0, with separate commercial licensing available from Ultralytics. Third-party components remain under their respective licenses.
 
-This repository implements computer-vision tracking and a virtual guidance simulation. It is not a certified navigation, collision-avoidance or flight-control system. Do not connect its simulated guidance percentages directly to a real aircraft without a separately engineered and validated flight-control architecture, safety layer, geofencing, fail-safes and appropriate testing.
+See `LICENSE` and `THIRD_PARTY_LICENSES.md`.
+
+## Responsible use
+
+This project is intended for computer-vision research, software engineering demonstrations and simulated tracking/control experiments. Detection and tracking systems can make mistakes, especially with small targets, motion blur, occlusion and unusual camera angles.
+
+Do not use the virtual guidance outputs as direct real-world flight-control commands without an independently engineered and validated safety/control system.
