@@ -1,0 +1,4 @@
+numpy>=1.26
+opencv-python>=4.9
+PySide6>=6.6
+ultralytics>=8.3

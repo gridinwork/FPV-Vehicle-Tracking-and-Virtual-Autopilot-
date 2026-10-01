@@ -1,0 +1,40 @@
+{
+  "last_source_folder": "",
+  "detector": "AUTO",
+  "model": "BALANCED",
+  "tracker": "BYTETRACK",
+  "device": "AUTO",
+  "confidence": 0.25,
+  "classes": [
+    "CAR",
+    "TRUCK"
+  ],
+  "dead_zone": 0.15,
+  "controller": "SIMPLE",
+  "pid": {
+    "h_kp": 80.0,
+    "h_ki": 0.0,
+    "h_kd": 5.0,
+    "v_kp": 80.0,
+    "v_ki": 0.0,
+    "v_kd": 5.0
+  },
+  "trajectory_length": 60,
+  "lost_timeout": 2.0,
+  "prediction": true,
+  "target_mode": "CLICK",
+  "processing": "REALTIME",
+  "playback_speed": 1.0,
+  "follow_view": true,
+  "auto_zoom": true,
+  "overlays": {
+    "boxes": true,
+    "trajectory": true,
+    "dead_zone": true,
+    "crosshair": true,
+    "vector": true,
+    "flight_director": true,
+    "debug": false
+  },
+  "geometry": ""
+}
